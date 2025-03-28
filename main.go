@@ -95,7 +95,7 @@ func checkAndGenerateKeys(db *gorm.DB) {
 			continue
 		}
 
-		time.Sleep(10 * time.Minute)
+		time.Sleep(time.Minute)
 	}
 }
 
