@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/blocto/solana-go-sdk/types"
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	"github.com/mr-tron/base58/base58"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -27,8 +30,7 @@ type TokenKey struct {
 
 func (TokenKey) TableName() string { return "token_key" }
 
-func connectDB() *gorm.DB {
-	dsn := "postgresql://postgres:123456@127.0.0.1:5432/postgres?sslmode=disable"
+func connectDB(dsn string) *gorm.DB {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
@@ -138,13 +140,48 @@ func maintainUnpickedKeys(db *gorm.DB, target int, suffix string, sleepDur time.
 }
 
 func main() {
-	db := connectDB()
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Error loading .env file:", err)
+	}
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Fatal("DATABASE_URL environment variable is not set")
+	}
+	db := connectDB(dsn)
+
+	targetUnpicked := 100
+	if val := os.Getenv("TARGET_UNPICKED"); val != "" {
+		if v, err := strconv.Atoi(val); err == nil {
+			targetUnpicked = v
+		}
+	}
+
+	suffix := "ponz"
+	if val := os.Getenv("SUFFIX"); val != "" {
+		suffix = val
+	}
+
+	sleepMinutes := 1
+	if val := os.Getenv("SLEEP_MINUTES"); val != "" {
+		if v, err := strconv.Atoi(val); err == nil {
+			sleepMinutes = v
+		}
+	}
+
+	workers := 100
+	if val := os.Getenv("WORKERS"); val != "" {
+		if v, err := strconv.Atoi(val); err == nil {
+			workers = v
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Keep at least 100 unpicked keys, sleep 5m when enough
-	go maintainUnpickedKeys(db, 100, "ponz", time.Minute, 2)
+	// Keep at least targetUnpicked unpicked keys, sleep sleepMinutes when enough
+	go maintainUnpickedKeys(db, targetUnpicked, suffix, time.Duration(sleepMinutes)*time.Minute, workers)
 
 	<-ctx.Done()
 	fmt.Println("Shutting down...")
